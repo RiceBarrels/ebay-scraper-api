@@ -1,0 +1,9 @@
+scrapy>=2.11.0
+scrapeops-scrapy-proxy-sdk>=0.3.0
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+requests>=2.31.0
+fake-useragent>=1.4.0
+itemadapter>=0.8.0
+price-parser>=0.3.4
+dateparser>=1.1.8 
