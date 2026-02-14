@@ -92,10 +92,14 @@ async def root():
     return {
         "message": "eBay Scraper API",
         "docs": "/docs",
+        "proxy_configured": bool(SCRAPER_API_KEY),
         "endpoints": {
-            "/search": "Synchronous search (waits for results)",
+            "/search/lite": "Lightweight search (recommended)",
+            "/search": "Scrapy-based search",
             "/search/async": "Async search (returns job_id)",
-            "/jobs/{job_id}": "Check async job status"
+            "/jobs/{job_id}": "Check async job status",
+            "/test": "Test eBay connection",
+            "/debug": "Debug eBay response"
         }
     }
 
@@ -212,6 +216,9 @@ async def get_job(job_id: str):
 async def health():
     return {"status": "healthy"}
 
+# Get API key from environment variable
+SCRAPER_API_KEY = os.environ.get('SCRAPER_API_KEY', '')
+
 @app.get("/search/lite")
 async def search_lite(
     query: str = Query(..., description="Search query"),
@@ -219,28 +226,34 @@ async def search_lite(
 ):
     """
     Lightweight search using requests (no Scrapy).
-    More reliable on cloud platforms.
+    Uses ScraperAPI proxy if SCRAPER_API_KEY is set.
     """
     import re
     from bs4 import BeautifulSoup
 
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive',
-    }
+    ebay_url = f"https://www.ebay.com/sch/i.html?_nkw={query.replace(' ', '+')}&_sop=12"
 
-    url = f"https://www.ebay.com/sch/i.html?_nkw={query.replace(' ', '+')}&_sop=12"
+    # Use ScraperAPI if key is available
+    if SCRAPER_API_KEY:
+        url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={ebay_url}"
+        headers = {}
+    else:
+        url = ebay_url
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+        }
 
     try:
-        response = requests.get(url, headers=headers, timeout=30)
+        response = requests.get(url, headers=headers, timeout=60)
         response.raise_for_status()
     except Exception as e:
         return JSONResponse(
             status_code=500,
-            content={"success": False, "error": f"Failed to fetch eBay: {str(e)}"}
+            content={"success": False, "error": f"Failed to fetch eBay: {str(e)}", "using_proxy": bool(SCRAPER_API_KEY)}
         )
 
     soup = BeautifulSoup(response.text, 'lxml')
