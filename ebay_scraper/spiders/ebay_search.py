@@ -123,10 +123,14 @@ class EbaySearchSpider(scrapy.Spider):
     def parse_search_results(self, response):
         """Parse eBay search results page"""
         self.logger.info(f"Parsing search results from: {response.url}")
-        
-        # Extract search result items
-        item_containers = response.css('.s-item')
-        
+
+        # Extract search result items - eBay now uses s-card instead of s-item
+        item_containers = response.css('.s-card')
+
+        if not item_containers:
+            # Fallback to old selector
+            item_containers = response.css('.s-item')
+
         if not item_containers:
             self.logger.warning("No search result items found")
             return
@@ -168,86 +172,94 @@ class EbaySearchSpider(scrapy.Spider):
         """Extract data from a single search result item"""
         try:
             item = EbaySearchItem()
-            
-            # Product title and URL
-            title_link = container.css('h3.s-item__title a')
-            if not title_link:
-                title_link = container.css('.s-item__link')
-            
-            if title_link:
-                item['product_title'] = title_link.css('::text').get('')
-                item['product_url'] = title_link.css('::attr(href)').get('')
-                
-                # Extract item ID from URL
-                if item['product_url']:
-                    item['product_id'] = self._extract_item_id(item['product_url'])
-                    item['listing_id'] = item['product_id']
-            else:
+
+            # Try new s-card selectors first, then fall back to old s-item selectors
+            # Product title and URL - new structure
+            title_element = container.css('.s-card__title .su-styled-text::text').get('')
+            if not title_element:
+                title_element = container.css('.s-card__title span::text').get('')
+            if not title_element:
+                # Fallback to old selectors
+                title_link = container.css('h3.s-item__title a')
+                if not title_link:
+                    title_link = container.css('.s-item__link')
+                if title_link:
+                    title_element = title_link.css('::text').get('')
+
+            # Get product URL - new structure uses s-card__link
+            product_url = container.css('.s-card__link::attr(href)').get('')
+            if not product_url:
+                product_url = container.css('a.s-card__link::attr(href)').get('')
+            if not product_url:
+                # Fallback to old selector
+                product_url = container.css('.s-item__link::attr(href)').get('')
+
+            if not title_element or not product_url:
                 return None
-            
-            # Skip if no title or URL
-            if not item['product_title'] or not item['product_url']:
-                return None
+
+            item['product_title'] = self._clean_title(title_element.strip())
+            item['product_url'] = product_url
+
+            # Extract item ID from URL
+            item['product_id'] = self._extract_item_id(product_url)
+            item['listing_id'] = item['product_id']
 
             # Skip placeholder or invalid items (item_id must be all digits and at least 9 digits)
             if not item['product_id'] or not item['product_id'].isdigit() or len(item['product_id']) < 9:
                 return None
-            
-            # Clean title
-            item['product_title'] = self._clean_title(item['product_title'])
-            
-            # Current price
-            price_element = container.css('.s-item__price .notranslate')
-            if price_element:
-                price_text = price_element.css('::text').get('')
-                item['current_price'] = price_text.strip()
-            else:
-                # Alternative price selectors
-                price_alt = container.css('.s-item__price::text').get('')
-                item['current_price'] = price_alt.strip() if price_alt else ''
-            
-            # Shipping cost
-            shipping_element = container.css('.s-item__shipping')
-            if shipping_element:
-                shipping_text = shipping_element.css('::text').get('')
-                item['shipping_cost'] = shipping_text.strip() if shipping_text else ''
-            else:
-                item['shipping_cost'] = ''
-            
+
+            # Current price - new structure
+            price_text = container.css('.s-card__price::text').get('')
+            if not price_text:
+                price_text = container.css('.s-card__price .su-styled-text::text').get('')
+            if not price_text:
+                # Fallback to old selectors
+                price_element = container.css('.s-item__price .notranslate::text').get('')
+                if not price_element:
+                    price_element = container.css('.s-item__price::text').get('')
+                price_text = price_element if price_element else ''
+            item['current_price'] = price_text.strip() if price_text else ''
+
+            # Condition - new structure uses s-card__subtitle
+            condition_text = container.css('.s-card__subtitle .su-styled-text::text').get('')
+            if not condition_text:
+                condition_text = container.css('.s-card__subtitle span::text').get('')
+            if not condition_text:
+                # Fallback to old selector
+                condition_text = container.css('.SECONDARY_INFO::text').get('')
+            item['condition'] = condition_text.strip() if condition_text else ''
+
+            # Shipping cost - check attribute rows
+            shipping_text = ''
+            for attr_row in container.css('.s-card__attribute-row'):
+                row_text = attr_row.css('.su-styled-text::text').get('')
+                if row_text and ('shipping' in row_text.lower() or 'free' in row_text.lower()):
+                    shipping_text = row_text
+                    break
+            if not shipping_text:
+                shipping_element = container.css('.s-item__shipping::text').get('')
+                shipping_text = shipping_element if shipping_element else ''
+            item['shipping_cost'] = shipping_text.strip() if shipping_text else ''
+
             # Seller information
-            seller_element = container.css('.s-item__seller-info-text')
-            if seller_element:
-                seller_text = seller_element.css('::text').get('')
-                if seller_text:
-                    item['seller_name'] = seller_text.strip()
-            else:
-                item['seller_name'] = ''
-            
+            seller_text = container.css('.s-card__seller-logo::attr(alt)').get('')
+            if not seller_text:
+                seller_text = container.css('.s-item__seller-info-text::text').get('')
+            item['seller_name'] = seller_text.strip() if seller_text else ''
+
             # Location
-            location_element = container.css('.s-item__location')
-            if location_element:
-                location_text = location_element.css('::text').get('')
-                item['seller_location'] = location_text.strip() if location_text else ''
-            else:
-                item['seller_location'] = ''
-            
-            # Condition
-            condition_element = container.css('.SECONDARY_INFO')
-            if condition_element:
-                condition_text = condition_element.css('::text').get('')
-                item['condition'] = condition_text.strip() if condition_text else ''
-            else:
-                item['condition'] = ''
-            
-            # Main image
-            image_element = container.css('.s-item__image img')
-            if image_element:
-                item['main_image'] = image_element.css('::attr(src)').get('')
-                item['thumbnail_image'] = item['main_image']
-            else:
-                item['main_image'] = ''
-                item['thumbnail_image'] = ''
-            
+            location_text = container.css('.s-item__location::text').get('')
+            item['seller_location'] = location_text.strip() if location_text else ''
+
+            # Main image - new structure
+            image_url = container.css('.s-card__image img::attr(src)').get('')
+            if not image_url:
+                image_url = container.css('.s-card__media-wrapper img::attr(src)').get('')
+            if not image_url:
+                image_url = container.css('.s-item__image img::attr(src)').get('')
+            item['main_image'] = image_url if image_url else ''
+            item['thumbnail_image'] = item['main_image']
+
             # Auction/bid information
             bid_element = container.css('.s-item__bidding')
             if bid_element:
@@ -261,7 +273,7 @@ class EbaySearchSpider(scrapy.Spider):
             else:
                 item['bid_count'] = ''
                 item['price_type'] = 'buy_it_now'
-            
+
             # Time left (for auctions)
             time_element = container.css('.s-item__time-left')
             if time_element:
@@ -269,26 +281,26 @@ class EbaySearchSpider(scrapy.Spider):
                 item['time_left'] = time_text.strip() if time_text else ''
             else:
                 item['time_left'] = ''
-            
+
             # Buy It Now price (for auctions)
             buy_now_element = container.css('.s-item__purchase-options-with-icon')
             if buy_now_element:
                 buy_now_text = buy_now_element.css('::text').get('')
-                if 'Buy It Now' in buy_now_text:
+                if buy_now_text and 'Buy It Now' in buy_now_text:
                     item['buy_it_now_price'] = self._extract_price_from_text(buy_now_text)
                 else:
                     item['buy_it_now_price'] = ''
             else:
                 item['buy_it_now_price'] = ''
-            
+
             # Watchers count
-            watchers_element = container.css('.s-item__watchheart-count')
+            watchers_element = container.css('.s-card__watchheart, .s-item__watchheart-count')
             if watchers_element:
                 watchers_text = watchers_element.css('::text').get('')
                 item['watchers'] = self._extract_number(watchers_text) if watchers_text else ''
             else:
                 item['watchers'] = ''
-            
+
             # Items sold information
             sold_element = container.css('.s-item__quantitySold')
             if sold_element:
@@ -296,12 +308,12 @@ class EbaySearchSpider(scrapy.Spider):
                 item['items_sold'] = self._extract_number(sold_text) if sold_text else ''
             else:
                 item['items_sold'] = ''
-            
+
             # Special features
             item['fast_n_free'] = bool(container.css('.s-item__fast-n-free'))
-            item['top_rated_seller'] = bool(container.css('.s-item__etrs'))
+            item['top_rated_seller'] = bool(container.css('.s-item__etrs, .s-card__program-badge'))
             item['returns_accepted'] = bool(container.css('.s-item__returns'))
-            item['authenticity_guarantee'] = bool(container.css('.s-item__authenticity'))
+            item['authenticity_guarantee'] = bool(container.css('.s-item__authenticity, .s-card__program-badge-container--certifiedRefurbished'))
             
             # Search context
             item['search_query'] = meta['search_query']

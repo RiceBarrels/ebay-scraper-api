@@ -31,9 +31,10 @@ venv.bak/
 .scrapy/
 *.log
 
-# Data files (optional - uncomment if you don't want to track scraped data)
-# data/*.csv
-# data/*.json
+# Data files
+data/
+*.json
+!package.json
 
 # IDE
 .vscode/

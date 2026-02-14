@@ -17,7 +17,7 @@ ROBOTSTXT_OBEY = False
 
 # ScrapeOps Settings
 SCRAPEOPS_API_KEY = 'Your-API-Key'  # Get your ScrapeOps API key from https://scrapeops.io/app/register/main/
-SCRAPEOPS_PROXY_ENABLED = True
+SCRAPEOPS_PROXY_ENABLED = False
 SCRAPEOPS_RENDER_JS = True
 SCRAPEOPS_WAIT = 3000
 SCRAPEOPS_BYPASS = 'generic_level_2'
@@ -28,7 +28,6 @@ SCRAPEOPS_BYPASS = 'generic_level_2'
 DOWNLOAD_DELAY = 2
 # The download delay setting will honor only one of:
 CONCURRENT_REQUESTS_PER_DOMAIN = 8
-CONCURRENT_REQUESTS_PER_IP = 8
 
 # Disable cookies (enabled by default)
 COOKIES_ENABLED = True
@@ -60,7 +59,7 @@ SPIDER_MIDDLEWARES = {
 # Enable or disable downloader middlewares
 # See https://docs.scrapy.org/en/latest/topics/downloader-middleware.html
 DOWNLOADER_MIDDLEWARES = {
-    'scrapeops_scrapy_proxy_sdk.scrapeops_scrapy_proxy_sdk.ScrapeOpsScrapyProxySdk': 725,
+    'scrapeops_scrapy_proxy_sdk.scrapeops_scrapy_proxy_sdk.ScrapeOpsScrapyProxySdk': None,
     'ebay_scraper.middlewares.EbayScraperDownloaderMiddleware': 543,
     'ebay_scraper.middlewares.UserAgentRotationMiddleware': 400,
     'ebay_scraper.middlewares.EbayLocationMiddleware': 350,
