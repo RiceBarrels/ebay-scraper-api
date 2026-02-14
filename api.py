@@ -8,12 +8,16 @@ import os
 import uuid
 import asyncio
 from datetime import datetime
+import requests
 
 app = FastAPI(
     title="eBay Scraper API",
     description="API for scraping eBay search results",
     version="1.0.0"
 )
+
+# Get the directory where this script is located
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Store for async job results
 jobs = {}
@@ -207,6 +211,113 @@ async def get_job(job_id: str):
 @app.get("/health")
 async def health():
     return {"status": "healthy"}
+
+@app.get("/search/lite")
+async def search_lite(
+    query: str = Query(..., description="Search query"),
+    max_results: int = Query(20, ge=1, le=50, description="Max results")
+):
+    """
+    Lightweight search using requests (no Scrapy).
+    More reliable on cloud platforms.
+    """
+    import re
+    from bs4 import BeautifulSoup
+
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+    }
+
+    url = f"https://www.ebay.com/sch/i.html?_nkw={query.replace(' ', '+')}&_sop=12"
+
+    try:
+        response = requests.get(url, headers=headers, timeout=30)
+        response.raise_for_status()
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": f"Failed to fetch eBay: {str(e)}"}
+        )
+
+    soup = BeautifulSoup(response.text, 'lxml')
+    results = []
+
+    # Find items using s-card (new structure)
+    cards = soup.select('.s-card')
+
+    for card in cards[:max_results]:
+        try:
+            # Get link and extract item ID
+            link_elem = card.select_one('.s-card__link')
+            if not link_elem:
+                continue
+
+            href = link_elem.get('href', '')
+            item_id_match = re.search(r'/itm/(\d+)', href)
+            if not item_id_match:
+                continue
+
+            item_id = item_id_match.group(1)
+
+            # Get title
+            title_elem = card.select_one('.s-card__title span')
+            title = title_elem.get_text(strip=True) if title_elem else ''
+
+            # Get price
+            price_elem = card.select_one('.s-card__price')
+            price = price_elem.get_text(strip=True) if price_elem else ''
+
+            # Get condition
+            condition_elem = card.select_one('.s-card__subtitle span')
+            condition = condition_elem.get_text(strip=True) if condition_elem else ''
+
+            # Get image
+            img_elem = card.select_one('img')
+            image = img_elem.get('src', '') if img_elem else ''
+
+            if title and item_id:
+                results.append({
+                    'product_id': item_id,
+                    'title': title,
+                    'price': price,
+                    'condition': condition,
+                    'url': f'https://www.ebay.com/itm/{item_id}',
+                    'image': image
+                })
+
+        except Exception:
+            continue
+
+    return {
+        "success": True,
+        "query": query,
+        "count": len(results),
+        "results": results
+    }
+
+@app.get("/test")
+async def test_ebay_connection():
+    """Test if we can connect to eBay"""
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    }
+    try:
+        resp = requests.get("https://www.ebay.com", headers=headers, timeout=10)
+        return {
+            "status": "ok",
+            "ebay_status_code": resp.status_code,
+            "can_connect": resp.status_code == 200
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+            "can_connect": False
+        }
 
 if __name__ == "__main__":
     import uvicorn
