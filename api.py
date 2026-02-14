@@ -319,6 +319,51 @@ async def test_ebay_connection():
             "can_connect": False
         }
 
+@app.get("/debug")
+async def debug_ebay(query: str = "iphone"):
+    """Debug eBay response"""
+    import re
+    from bs4 import BeautifulSoup
+
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+    }
+
+    url = f"https://www.ebay.com/sch/i.html?_nkw={query}"
+
+    try:
+        resp = requests.get(url, headers=headers, timeout=30)
+        soup = BeautifulSoup(resp.text, 'lxml')
+
+        # Check what we got
+        title = soup.title.string if soup.title else "No title"
+
+        # Count different elements
+        s_cards = len(soup.select('.s-card'))
+        s_items = len(soup.select('.s-item'))
+        all_links = len(soup.select('a[href*="/itm/"]'))
+
+        # Get sample of classes
+        all_classes = set()
+        for elem in soup.select('[class]')[:100]:
+            for c in elem.get('class', []):
+                if 's-' in c or 'srp' in c:
+                    all_classes.add(c)
+
+        return {
+            "status_code": resp.status_code,
+            "page_title": title,
+            "s_cards_found": s_cards,
+            "s_items_found": s_items,
+            "item_links_found": all_links,
+            "sample_classes": list(all_classes)[:20],
+            "is_blocked": "captcha" in resp.text.lower() or "robot" in resp.text.lower()
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
