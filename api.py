@@ -233,9 +233,9 @@ async def search_lite(
 
     ebay_url = f"https://www.ebay.com/sch/i.html?_nkw={query.replace(' ', '+')}&_sop=12&LH_BIN=1"
 
-    # Use ScraperAPI if key is available
+    # Use ScraperAPI if key is available, force US geo for USD prices
     if SCRAPER_API_KEY:
-        url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={ebay_url}"
+        url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={ebay_url}&country_code=us"
         headers = {}
     else:
         url = ebay_url
@@ -295,9 +295,9 @@ async def search_lite(
             if 'bid' in full_text and 'buy it now' not in full_text:
                 continue
 
-            # Extract numeric price
+            # Extract numeric price - handle $, £, €, C$, A$, and currency codes like NZD/AUD
             price_num = None
-            price_match = re.search(r'[\$£€]([0-9,]+\.?\d*)', price)
+            price_match = re.search(r'(?:[\$£€]|[A-Z]{2,3}\s*)([0-9,]+\.?\d*)', price)
             if price_match:
                 price_num = float(price_match.group(1).replace(',', ''))
 
