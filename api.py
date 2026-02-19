@@ -231,7 +231,7 @@ async def search_lite(
     import re
     from bs4 import BeautifulSoup
 
-    ebay_url = f"https://www.ebay.com/sch/i.html?_nkw={query.replace(' ', '+')}&_sop=12"
+    ebay_url = f"https://www.ebay.com/sch/i.html?_nkw={query.replace(' ', '+')}&_sop=12&LH_BIN=1"
 
     # Use ScraperAPI if key is available
     if SCRAPER_API_KEY:
@@ -280,9 +280,26 @@ async def search_lite(
             title_elem = card.select_one('.s-card__title span')
             title = title_elem.get_text(strip=True) if title_elem else ''
 
+            # Skip ads / placeholder items
+            if not title or title.lower() in ('shop on ebay', ''):
+                continue
+            if item_id == '123456':
+                continue
+
             # Get price
             price_elem = card.select_one('.s-card__price')
             price = price_elem.get_text(strip=True) if price_elem else ''
+
+            # Skip auction/bid items
+            full_text = card.get_text(separator=' ', strip=True).lower()
+            if 'bid' in full_text and 'buy it now' not in full_text:
+                continue
+
+            # Extract numeric price
+            price_num = None
+            price_match = re.search(r'[\$£€]([0-9,]+\.?\d*)', price)
+            if price_match:
+                price_num = float(price_match.group(1).replace(',', ''))
 
             # Get condition
             condition_elem = card.select_one('.s-card__subtitle span')
@@ -297,6 +314,7 @@ async def search_lite(
                     'product_id': item_id,
                     'title': title,
                     'price': price,
+                    'price_num': price_num,
                     'condition': condition,
                     'url': f'https://www.ebay.com/itm/{item_id}',
                     'image': image
